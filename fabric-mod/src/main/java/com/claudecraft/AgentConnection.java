@@ -194,6 +194,10 @@ public class AgentConnection {
                     int count = msg.get("count").getAsInt();
                     sendChat("§a[ClaudeCraft] Placed " + count + " blocks!");
                 }
+                case "chat" -> {
+                    String chatMsg = msg.get("message").getAsString();
+                    sendChat(chatMsg);
+                }
                 case "error" -> {
                     String errMsg = msg.get("message").getAsString();
                     sendChat("§c[ClaudeCraft] Error: " + errMsg);

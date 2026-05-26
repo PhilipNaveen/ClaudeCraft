@@ -86,9 +86,12 @@ export class ClaudeBuilder extends EventEmitter {
   async generateBuild(prompt, origin) {
     const t0 = Date.now();
 
-    // STEP 1: Architect plans the build (small, fast call)
+    // STEP 1: Architect plans the build
+    this.emit('chat', `§7Analyzing build request: §f"${prompt}"`);
+    this.emit('chat', `§7Thinking about materials, dimensions, and layout...`);
     this.emit('status', 'Planning...');
     console.log('[Architect] Planning build...');
+
     const planText = await this._call(
       `${ARCHITECT_TOOL.role}\n\nBuild request: "${prompt}"\nOrigin: (${origin.x}, ${origin.y}, ${origin.z})\nPlace the build starting at the origin.`,
       'haiku'
@@ -98,7 +101,6 @@ export class ClaudeBuilder extends EventEmitter {
     try {
       plan = JSON.parse(planText.match(/\{[\s\S]*\}/)[0]);
     } catch {
-      // Fallback: single-layer generation
       console.log('[Architect] Plan parse failed, using fallback');
       plan = {
         palette: {}, footprint: { w: 8, d: 8 },
@@ -106,10 +108,21 @@ export class ClaudeBuilder extends EventEmitter {
       };
     }
 
-    console.log(`[Architect] Plan: "${plan.name || prompt}" — ${plan.layers?.length || 0} layers (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+    const planTime = ((Date.now() - t0) / 1000).toFixed(1);
+    console.log(`[Architect] Plan: "${plan.name || prompt}" — ${plan.layers?.length || 0} layers (${planTime}s)`);
 
-    // STEP 2: Fan-out — generate layers in parallel batches of 2
-    // (Claude Code pattern: parallel when independent, sequential when dependent)
+    // Narrate the plan to the player
+    const name = plan.name || prompt;
+    const palette = plan.palette || {};
+    const primaryBlock = palette.primary || palette.walls || 'mixed blocks';
+    this.emit('chat', `§a✓ §fPlan ready: §b${name}`);
+    this.emit('chat', `§7  ${plan.footprint?.w || '?'}x${plan.footprint?.d || '?'} footprint, ${plan.layers?.length || 0} layers`);
+    if (palette.primary) {
+      const matList = Object.values(palette).slice(0, 4).map(m => m.replace('minecraft:', '')).join(', ');
+      this.emit('chat', `§7  Materials: §f${matList}`);
+    }
+
+    // STEP 2: Fan-out layer generation
     const allBlocks = [];
     const layers = plan.layers || [];
 
@@ -118,28 +131,39 @@ export class ClaudeBuilder extends EventEmitter {
       const batchNum = Math.floor(i / 2) + 1;
       const totalBatches = Math.ceil(layers.length / 2);
 
+      // Narrate what we're building
+      for (const layer of batch) {
+        this.emit('chat', `§7Building §e${layer.name}§7...`);
+      }
       this.emit('status', `Building ${batchNum}/${totalBatches}...`);
       console.log(`[Mason] Batch ${batchNum}/${totalBatches}: ${batch.map(l => l.name).join(', ')}`);
 
       const t1 = Date.now();
 
-      // Parallel generation of 2 layers at once
       const results = await Promise.allSettled(
         batch.map(layer => this._generateLayer(layer, plan, origin))
       );
 
-      for (const r of results) {
+      let batchBlocks = 0;
+      for (let j = 0; j < results.length; j++) {
+        const r = results[j];
         if (r.status === 'fulfilled' && r.value.length > 0) {
           allBlocks.push(...r.value);
+          batchBlocks += r.value.length;
           this.emit('blocks', r.value);
+          this.emit('chat', `§a  ✓ §f${batch[j].name}§7 — ${r.value.length} blocks placed`);
+        } else if (r.status === 'rejected') {
+          this.emit('chat', `§c  ✗ §f${batch[j].name}§7 — failed, skipping`);
         }
       }
 
-      console.log(`[Mason] Batch done: +${results.filter(r => r.status === 'fulfilled').reduce((s, r) => s + r.value.length, 0)} blocks (${((Date.now() - t1) / 1000).toFixed(1)}s)`);
+      const batchTime = ((Date.now() - t1) / 1000).toFixed(1);
+      console.log(`[Mason] Batch done: +${batchBlocks} blocks (${batchTime}s)`);
     }
 
-    // STEP 3: Inspector validates and fixes (Claude Code pattern: verify after execute)
+    // STEP 3: Inspector validates
     if (allBlocks.length > 0) {
+      this.emit('chat', `§7Inspecting build for issues...`);
       this.emit('status', 'Inspecting...');
       console.log('[Inspector] Validating build...');
 
@@ -158,17 +182,23 @@ export class ClaudeBuilder extends EventEmitter {
           console.log(`[Inspector] ${fixes.fixes.length} fixes applied`);
           allBlocks.push(...fixes.fixes);
           this.emit('blocks', fixes.fixes);
+          this.emit('chat', `§a  ✓ §7Applied ${fixes.fixes.length} fixes (lighting, doors, etc.)`);
+        } else {
+          this.emit('chat', `§a  ✓ §7Build looks good — no fixes needed`);
         }
         if (fixes.removals?.length > 0) {
           console.log(`[Inspector] ${fixes.removals.length} removals`);
         }
       } catch (err) {
         console.log(`[Inspector] Skipped: ${err.message}`);
+        this.emit('chat', `§7  Inspection skipped`);
       }
     }
 
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     console.log(`[Done] ${allBlocks.length} blocks in ${elapsed}s`);
+    this.emit('chat', `§a§l✓ Build complete! §r§f${allBlocks.length} blocks §7in ${elapsed}s`);
+    this.emit('chat', `§7Use §fArrow keys§7 to move, §fR§7 to rotate, §fEnter§7 to place`);
 
     return { blocks: allBlocks, removals: [] };
   }
@@ -179,7 +209,10 @@ export class ClaudeBuilder extends EventEmitter {
       .map(b => `  (${b.x}, ${b.y}, ${b.z}): ${b.block}`)
       .join('\n');
 
+    this.emit('chat', `§7Editing ${selectedBlocks.length} blocks: §f"${prompt}"`);
+    this.emit('chat', `§7Analyzing structure and planning changes...`);
     this.emit('status', 'Editing...');
+
     const text = await this._call(
       `You are a Minecraft editor. Given blocks and an instruction, output ONLY changes as JSON.
 {"blocks":[{"x":0,"y":0,"z":0,"block":"minecraft:vine"},...], "removals":[{"x":0,"y":0,"z":0}]}
@@ -188,7 +221,10 @@ Only include changed/new blocks. Be creative and detailed.
 Existing blocks:\n${blockList}\n\nEdit: ${prompt}`,
       'haiku'
     );
-    return this._parseBlocks(text);
+    const result = this._parseBlocks(text);
+    this.emit('chat', `§a✓ §f${result.blocks.length} changes§7, ${(result.removals || []).length} removals`);
+    this.emit('chat', `§7Review the preview, then §fEnter§7 to confirm or §fEsc§7 to cancel`);
+    return result;
   }
 
   // ---- LAYER GENERATOR (isolated context per layer) ----

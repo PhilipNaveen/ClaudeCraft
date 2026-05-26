@@ -26,9 +26,15 @@ async function main() {
         ws.send(JSON.stringify({ type: 'status', message }));
       }
     };
+    const onChat = (message) => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'chat', message }));
+      }
+    };
 
     claude.on('blocks', onBlocks);
     claude.on('status', onStatus);
+    claude.on('chat', onChat);
 
     ws.on('message', async (data) => {
       try {
@@ -44,6 +50,7 @@ async function main() {
       console.log('[ClaudeCraft] Fabric mod disconnected');
       claude.removeListener('blocks', onBlocks);
       claude.removeListener('status', onStatus);
+      claude.removeListener('chat', onChat);
     });
   });
 }
