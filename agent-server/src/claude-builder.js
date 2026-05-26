@@ -376,7 +376,7 @@ Existing blocks:\n${blockList}\n\nEdit instruction: ${prompt}`,
   _call(prompt, model = 'sonnet') {
     return new Promise((resolve, reject) => {
       const proc = spawn('claude', ['-p', '-', '--output-format', 'text', '--model', model], {
-        timeout: 180000,
+        timeout: 600000,
         env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'cli' }
       });
 

@@ -35,6 +35,11 @@ public class AgentConnection {
                                 connected = true;
                                 System.out.println("[ClaudeCraft] Connected to agent server!");
                                 sendChat("§a[ClaudeCraft] Connected to AI agent!");
+                                // Reset mode on reconnect so keys work again
+                                if (ClaudeCraftMod.currentMode == ClaudeCraftMod.Mode.GENERATING) {
+                                    ClaudeCraftMod.currentMode = ClaudeCraftMod.Mode.NONE;
+                                    ClaudeCraftMod.ghostRenderer.clear();
+                                }
                             }
 
                             @Override
