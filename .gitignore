@@ -1,0 +1,25 @@
+# Dependencies
+agent-server/node_modules/
+
+# Build outputs
+fabric-mod/build/
+fabric-mod/.gradle/
+
+# Env files with secrets
+agent-server/.env
+*.env
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Gradle
+gradle/wrapper/gradle-wrapper.jar
+
+# Logs
+*.log
