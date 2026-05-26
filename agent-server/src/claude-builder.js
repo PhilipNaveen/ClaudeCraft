@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
+import { BLOCK_PROPERTIES, BUILDING_PATTERNS, ANTI_PATTERNS } from './minecraft-knowledge.js';
 
 // ============================================================
 // ClaudeCraft Builder — Full Claude Code agent loop
@@ -10,7 +11,13 @@ import { EventEmitter } from 'events';
 // 4. Retry (Sonnet) — regenerates bad layers with critique as context
 // 5. Inspect & fix (Sonnet) — structural validation pass
 
-const ARCHITECT_TOOL = `You are an expert Minecraft architect. Decompose a build into 4-8 layers.
+const ARCHITECT_TOOL = `You are a master Minecraft architect with deep knowledge of block properties, building techniques, and design patterns.
+
+${BUILDING_PATTERNS}
+
+${ANTI_PATTERNS}
+
+YOUR TASK: Decompose a build request into 4-8 layers. Choose materials based on the build's theme using your knowledge of block visual properties.
 
 RESPOND WITH ONLY JSON:
 {
@@ -18,66 +25,91 @@ RESPOND WITH ONLY JSON:
   "palette": {
     "primary": "minecraft:stone_bricks",
     "walls": "minecraft:oak_planks",
+    "frame": "minecraft:dark_oak_log",
     "roof": "minecraft:dark_oak_stairs",
     "floor": "minecraft:stone_bricks",
-    "accent": "minecraft:dark_oak_log",
+    "accent": "minecraft:cobblestone_wall",
     "light": "minecraft:lantern",
-    "glass": "minecraft:glass_pane"
+    "glass": "minecraft:glass_pane",
+    "detail": "minecraft:oak_trapdoor"
   },
   "footprint": {"w": 10, "d": 12},
   "layers": [
-    {"y_start": 0, "y_end": 0, "name": "foundation", "desc": "10x12 stone_bricks solid rectangle"},
-    {"y_start": 1, "y_end": 4, "name": "walls", "desc": "dark_oak_log pillars at all 4 corners and midpoints. oak_planks fill between pillars. Glass_pane 2x2 windows centered on each wall at y=2-3. oak_door[facing=south] center of south wall."},
-    {"y_start": 5, "y_end": 7, "name": "roof", "desc": "dark_oak_stairs ascending inward: [facing=east] at x=0, [facing=west] at x=9. Each y level inset by 1. dark_oak_slab ridge at center."},
-    {"y_start": 1, "y_end": 3, "name": "interior", "desc": "crafting_table at (1,1,1). furnace at (2,1,1). chest at (8,1,10). bookshelf row along north wall y=1-2. lantern hanging at (5,4,6). bed at (7,1,9)."}
+    {"y_start": 0, "y_end": 0, "name": "foundation", "desc": "10x12 cobblestone base extending 1 block past walls on all sides. stone_brick_slab border on top edge."},
+    {"y_start": 1, "y_end": 4, "name": "walls", "desc": "dark_oak_log pillars at all 4 corners and every 3 blocks. oak_planks fill between pillars. Glass_pane windows (2 wide, 2 tall) centered between each pair of pillars, recessed 1 block. oak_door[facing=south] at south wall center with dark_oak_stairs[half=top] as header above door."},
+    {"y_start": 5, "y_end": 7, "name": "roof", "desc": "Gable roof: dark_oak_stairs[facing=south] along z=0 ascending inward, [facing=north] along z=11. Each y level insets by 1 block. dark_oak_slab ridge at center. Overhang: extend roof 1 block past walls. Upside-down dark_oak_stairs[half=top] under overhang as soffit."},
+    {"y_start": 1, "y_end": 3, "name": "interior", "desc": "spruce_planks floor different from walls. crafting_table+furnace in corner. bookshelf wall 3-wide. lantern on chain from ceiling at center. bed in back corner. oak_stairs as bench seats. trapdoor+fence=table. chest against wall. Carpet for color."},
+    {"y_start": 0, "y_end": 1, "name": "exterior", "desc": "cobblestone_wall chimney on side going up above roofline. Stone_brick_slab path from door. oak_fence + lantern lamp posts flanking path. Flower bed: grass_block + poppy + dandelion along front wall. Cobblestone_wall low garden border."}
   ]
 }
 
 RULES:
-- 4-8 layers max
-- SPECIFIC descriptions: exact block types, relative positions, facing directions
-- Must include: foundation, walls (with windows+doors), roof (proper stair facing), interior (furniture+lighting+decoration)
-- Walls = SHELLS not solid
-- Use the palette consistently
-- Think architecturally: structural integrity, aesthetic coherence, livability`;
+- 4-8 layers
+- ALWAYS include: foundation (never build on bare ground), walls with DEPTH (pillars+fill, not flat), proper stair roof with overhang, furnished interior, exterior landscaping
+- Wall depth is MANDATORY: log/stripped_log pillars + planks between + recessed windows
+- Roof MUST use stairs with correct facing directions and slab ridges
+- Interior MUST have: lighting (lanterns not torches), furniture (stairs=chairs, trapdoor+fence=tables), storage, purpose
+- Specify EXACT stair facing: [facing=north/south/east/west] and [half=bottom/top]
+- Mix textures: 70% main + 20% variant + 10% accent (mossy_stone_bricks in stone walls, etc.)
+- Palette must have 6+ blocks that work together thematically`;
 
-const MASON_TOOL = `You are a master Minecraft mason. Convert a layer description into exact block coordinates.
+const MASON_TOOL = `You are a master Minecraft mason with encyclopedic knowledge of every block in the game.
+
+${BLOCK_PROPERTIES}
 
 RESPOND WITH ONLY JSON: {"blocks":[{"x":0,"y":0,"z":0,"block":"minecraft:stone"},...]}}
 
-RULES:
+BLOCK PLACEMENT RULES:
 - ALL coordinates ABSOLUTE: origin + offset
 - Walls are SHELLS (perimeter only, hollow interior)
-- Use EXACT block IDs with properties where needed:
-  - Stairs: minecraft:dark_oak_stairs[facing=east] (north/south/east/west)
-  - Doors: oak_door[facing=south,half=lower] AND oak_door[facing=south,half=upper]
-  - Slabs: oak_slab (bottom), oak_slab[type=top] (top)
-  - Beds: bed[facing=south,part=foot] AND bed[facing=south,part=head]
-  - Logs: oak_log[axis=y] (vertical), oak_log[axis=x] (east-west)
+- EXACT block state syntax:
+  Stairs: minecraft:dark_oak_stairs[facing=east,half=bottom] — facing=direction of the LOW side
+  Doors: ALWAYS place BOTH halves: oak_door[facing=south,half=lower] AND oak_door[facing=south,half=upper] at y+1
+  Slabs: oak_slab (bottom half), oak_slab[type=top] (upper half)
+  Beds: ALWAYS place BOTH parts: bed[facing=south,part=foot] AND bed[facing=south,part=head] 1 block in facing direction
+  Logs: oak_log[axis=y] (vertical pillar), oak_log[axis=x] (east-west beam), oak_log[axis=z] (north-south beam)
+  Trapdoors: oak_trapdoor[facing=south,half=bottom,open=false] — or open=true for decorative
+  Fences: auto-connect, just place. oak_fence, cobblestone_wall etc.
+  Chains: chain (vertical by default)
+  Lanterns: lantern (floor) or lantern[hanging=true] (ceiling)
+  Campfire: campfire[lit=true] or campfire[lit=false] for smoke only
+  Buttons: stone_button[face=wall,facing=south] for wall detail
+  Carpet: white_carpet, red_carpet etc. — thin floor layer
+
+TEXTURE MIXING: Don't use one block type for large surfaces.
+  Stone walls: mix stone_bricks (70%) + mossy_stone_bricks (15%) + cracked_stone_bricks (10%) + andesite (5%)
+  Wood walls: planks (80%) + stripped_log accents (20%)
+
 - Max 150 blocks per layer
 - Place EVERY block needed — don't skip or abbreviate
 - NO text, NO explanation, ONLY the JSON`;
 
-const CRITIC_TOOL = `You are a Minecraft build critic. Review blocks against the original plan and identify problems.
+const CRITIC_TOOL = `You are a Minecraft build critic and expert builder. Review builds against professional building standards.
+
+${ANTI_PATTERNS}
 
 RESPOND WITH ONLY JSON:
 {
   "score": 7,
   "issues": [
-    {"layer": "walls", "problem": "missing windows on north wall", "fix": "add glass_pane at y=2-3 centered on north wall"},
-    {"layer": "roof", "problem": "stairs facing wrong direction on west side", "fix": "change to [facing=west]"},
-    {"layer": "interior", "problem": "no lighting", "fix": "add lanterns at ceiling"}
+    {"layer": "walls", "problem": "flat single-material walls with no depth", "fix": "add log pillars every 3-4 blocks, recess windows, add trapdoor shutters"},
+    {"layer": "roof", "problem": "stairs facing wrong — open side should face inward", "fix": "north side needs [facing=south], south side needs [facing=north]"},
+    {"layer": "interior", "problem": "empty room with only a crafting table", "fix": "add lantern lighting, stairs as chairs, trapdoor+fence table, bookshelves, carpet"}
   ],
   "missing_layers": []
 }
 
-Score 1-10. Be harsh. Check:
-- Does it match the plan description?
-- Are walls actually hollow shells (not solid)?
-- Are windows, doors, stairs present with correct facing?
-- Is there interior furniture and lighting?
-- Does the roof look right (ascending stairs, not flat)?
-- Any floating blocks or gaps?
+Score 1-10. Be HARSH. Check against every anti-pattern:
+- Are walls FLAT with no depth? (pillars, mixed materials, recessed windows?)
+- Is the roof FLAT or are stairs facing wrong? (correct facing: open side faces INWARD)
+- Is there a foundation or does building sit on bare ground?
+- Are windows full glass blocks instead of glass_pane?
+- Is lighting torches-on-walls instead of lanterns on chains?
+- Is the interior empty or properly furnished?
+- Are surfaces single-material or properly texture-mixed?
+- Is there exterior landscaping (path, garden, lamp posts)?
+- Are doors missing their upper half?
+- Are beds missing their head part?
 
 If score >= 8 and no critical issues: {"score": 9, "issues": [], "missing_layers": []}`;
 
