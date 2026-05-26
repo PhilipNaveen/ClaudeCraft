@@ -1,278 +1,301 @@
-import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
+import { LLMBackend } from './llm-backend.js';
 import { BLOCK_PROPERTIES, BUILDING_PATTERNS, ANTI_PATTERNS } from './minecraft-knowledge.js';
 
 // ============================================================
-// ClaudeCraft Builder — Full Claude Code agent loop
+// ClaudeCraft Builder — hierarchical multi-section builds
 // ============================================================
-// 1. Plan (Sonnet) — architect decomposes into layers
-// 2. Execute (Sonnet) — mason generates layer-by-layer WITH context carry
-// 3. Self-critique (Sonnet) — reviews own output, identifies issues
-// 4. Retry (Sonnet) — regenerates bad layers with critique as context
-// 5. Inspect & fix (Sonnet) — structural validation pass
+// Small builds: plan → layers → critique → fix → inspect
+// Massive builds: master plan → sections → each section gets full pipeline
+// Supports: Claude CLI, Groq (free), Ollama (local)
 
-const ARCHITECT_TOOL = `You are a master Minecraft architect with deep knowledge of block properties, building techniques, and design patterns.
+const MASTER_ARCHITECT = `You are a master Minecraft architect. For LARGE/COMPLEX builds, decompose into SECTIONS that each get built independently.
 
 ${BUILDING_PATTERNS}
 
-${ANTI_PATTERNS}
-
-YOUR TASK: Decompose a build request into 4-8 layers. Choose materials based on the build's theme using your knowledge of block visual properties.
-
 RESPOND WITH ONLY JSON:
 {
-  "name": "Build Name",
+  "name": "Grand Castle",
+  "scale": "massive",
   "palette": {
     "primary": "minecraft:stone_bricks",
-    "walls": "minecraft:oak_planks",
-    "frame": "minecraft:dark_oak_log",
+    "walls": "minecraft:stone_bricks",
+    "frame": "minecraft:deepslate_bricks",
     "roof": "minecraft:dark_oak_stairs",
-    "floor": "minecraft:stone_bricks",
+    "floor": "minecraft:polished_andesite",
     "accent": "minecraft:cobblestone_wall",
     "light": "minecraft:lantern",
     "glass": "minecraft:glass_pane",
     "detail": "minecraft:oak_trapdoor"
   },
-  "footprint": {"w": 10, "d": 12},
+  "sections": [
+    {
+      "name": "main_hall",
+      "offset": {"x": 0, "z": 0},
+      "footprint": {"w": 16, "d": 20},
+      "height": 12,
+      "desc": "Central great hall. 16x20 stone_bricks walls with deepslate_brick pillars every 4 blocks. Vaulted ceiling with upside-down stairs. Grand entrance on south: 3-wide double-height doorway with stair arch. Windows on all walls. Interior: long oak table (trapdoor+fence), throne at north end, chandelier (chains+lanterns), banners on walls."
+    },
+    {
+      "name": "north_tower",
+      "offset": {"x": 2, "z": -8},
+      "footprint": {"w": 8, "d": 8},
+      "height": 20,
+      "desc": "Tall circular watchtower. Stone_bricks base, narrows at top. Spiral staircase inside (stairs winding around center). Arrow slit windows (1x2 gaps with iron_bars). Crenellated top with cobblestone_wall battlements. Lantern at peak."
+    },
+    {
+      "name": "courtyard_walls",
+      "offset": {"x": -10, "z": -10},
+      "footprint": {"w": 40, "d": 40},
+      "height": 6,
+      "desc": "Perimeter walls only (no fill). 2-block-thick stone_brick walls, 6 high. Cobblestone_wall battlements on top. Walkway with slab floor at y=4. Torch lighting every 4 blocks on inner wall."
+    }
+  ]
+}
+
+For SMALL builds (houses, shops, statues), use a single section.
+
+RULES:
+- Each section has its own offset from the build origin
+- Sections must not overlap — leave gaps for paths between them
+- Each section description must be DETAILED: specific blocks, dimensions, features
+- Max 6 sections for massive builds
+- Include exterior sections (walls, paths, gardens) not just buildings
+- Use the palette consistently across all sections`;
+
+const SECTION_PLANNER = `You are a Minecraft section planner. Break a single section into 4-8 buildable layers.
+
+${ANTI_PATTERNS}
+
+RESPOND WITH ONLY JSON:
+{
   "layers": [
-    {"y_start": 0, "y_end": 0, "name": "foundation", "desc": "10x12 cobblestone base extending 1 block past walls on all sides. stone_brick_slab border on top edge."},
-    {"y_start": 1, "y_end": 4, "name": "walls", "desc": "dark_oak_log pillars at all 4 corners and every 3 blocks. oak_planks fill between pillars. Glass_pane windows (2 wide, 2 tall) centered between each pair of pillars, recessed 1 block. oak_door[facing=south] at south wall center with dark_oak_stairs[half=top] as header above door."},
-    {"y_start": 5, "y_end": 7, "name": "roof", "desc": "Gable roof: dark_oak_stairs[facing=south] along z=0 ascending inward, [facing=north] along z=11. Each y level insets by 1 block. dark_oak_slab ridge at center. Overhang: extend roof 1 block past walls. Upside-down dark_oak_stairs[half=top] under overhang as soffit."},
-    {"y_start": 1, "y_end": 3, "name": "interior", "desc": "spruce_planks floor different from walls. crafting_table+furnace in corner. bookshelf wall 3-wide. lantern on chain from ceiling at center. bed in back corner. oak_stairs as bench seats. trapdoor+fence=table. chest against wall. Carpet for color."},
-    {"y_start": 0, "y_end": 1, "name": "exterior", "desc": "cobblestone_wall chimney on side going up above roofline. Stone_brick_slab path from door. oak_fence + lantern lamp posts flanking path. Flower bed: grass_block + poppy + dandelion along front wall. Cobblestone_wall low garden border."}
+    {"y_start": 0, "y_end": 0, "name": "foundation", "desc": "...specific block placement..."},
+    {"y_start": 1, "y_end": 4, "name": "walls", "desc": "...specific block placement..."}
   ]
 }
 
 RULES:
-- 4-8 layers
-- ALWAYS include: foundation (never build on bare ground), walls with DEPTH (pillars+fill, not flat), proper stair roof with overhang, furnished interior, exterior landscaping
-- Wall depth is MANDATORY: log/stripped_log pillars + planks between + recessed windows
-- Roof MUST use stairs with correct facing directions and slab ridges
-- Interior MUST have: lighting (lanterns not torches), furniture (stairs=chairs, trapdoor+fence=tables), storage, purpose
-- Specify EXACT stair facing: [facing=north/south/east/west] and [half=bottom/top]
-- Mix textures: 70% main + 20% variant + 10% accent (mossy_stone_bricks in stone walls, etc.)
-- Palette must have 6+ blocks that work together thematically`;
+- 4-8 layers per section
+- ALWAYS include foundation, walls with depth, roof, interior/details
+- Be SPECIFIC: exact block types, positions, facing directions
+- Follow all building patterns: wall depth, proper roofs, recessed windows, texture mixing`;
 
-const MASON_TOOL = `You are a master Minecraft mason with encyclopedic knowledge of every block in the game.
+const MASON_TOOL = `You are a master Minecraft mason with encyclopedic block knowledge.
 
 ${BLOCK_PROPERTIES}
 
 RESPOND WITH ONLY JSON: {"blocks":[{"x":0,"y":0,"z":0,"block":"minecraft:stone"},...]}}
 
 BLOCK PLACEMENT RULES:
-- ALL coordinates ABSOLUTE: origin + offset
+- ALL coordinates ABSOLUTE: section_origin + offset
 - Walls are SHELLS (perimeter only, hollow interior)
 - EXACT block state syntax:
-  Stairs: minecraft:dark_oak_stairs[facing=east,half=bottom] — facing=direction of the LOW side
-  Doors: ALWAYS place BOTH halves: oak_door[facing=south,half=lower] AND oak_door[facing=south,half=upper] at y+1
-  Slabs: oak_slab (bottom half), oak_slab[type=top] (upper half)
-  Beds: ALWAYS place BOTH parts: bed[facing=south,part=foot] AND bed[facing=south,part=head] 1 block in facing direction
-  Logs: oak_log[axis=y] (vertical pillar), oak_log[axis=x] (east-west beam), oak_log[axis=z] (north-south beam)
-  Trapdoors: oak_trapdoor[facing=south,half=bottom,open=false] — or open=true for decorative
-  Fences: auto-connect, just place. oak_fence, cobblestone_wall etc.
-  Chains: chain (vertical by default)
-  Lanterns: lantern (floor) or lantern[hanging=true] (ceiling)
-  Campfire: campfire[lit=true] or campfire[lit=false] for smoke only
-  Buttons: stone_button[face=wall,facing=south] for wall detail
-  Carpet: white_carpet, red_carpet etc. — thin floor layer
+  Stairs: minecraft:dark_oak_stairs[facing=east,half=bottom]
+  Doors: BOTH halves: oak_door[facing=south,half=lower] AND [half=upper] at y+1
+  Slabs: oak_slab (bottom), oak_slab[type=top] (upper)
+  Beds: BOTH parts: bed[facing=south,part=foot] AND [part=head]
+  Logs: oak_log[axis=y] (vertical), [axis=x] (east-west), [axis=z] (north-south)
+  Trapdoors: oak_trapdoor[facing=south,half=bottom,open=true]
+  Lanterns: lantern (floor), lantern[hanging=true] (ceiling)
+  Walls/Fences: auto-connect, just place
+- TEXTURE MIXING: mix 70% main + 20% variant + 10% accent for large surfaces
+- Max 200 blocks per layer
+- NO text, ONLY JSON`;
 
-TEXTURE MIXING: Don't use one block type for large surfaces.
-  Stone walls: mix stone_bricks (70%) + mossy_stone_bricks (15%) + cracked_stone_bricks (10%) + andesite (5%)
-  Wood walls: planks (80%) + stripped_log accents (20%)
-
-- Max 150 blocks per layer
-- Place EVERY block needed — don't skip or abbreviate
-- NO text, NO explanation, ONLY the JSON`;
-
-const CRITIC_TOOL = `You are a Minecraft build critic and expert builder. Review builds against professional building standards.
+const CRITIC_TOOL = `You are a harsh Minecraft build critic.
 
 ${ANTI_PATTERNS}
 
 RESPOND WITH ONLY JSON:
-{
-  "score": 7,
-  "issues": [
-    {"layer": "walls", "problem": "flat single-material walls with no depth", "fix": "add log pillars every 3-4 blocks, recess windows, add trapdoor shutters"},
-    {"layer": "roof", "problem": "stairs facing wrong — open side should face inward", "fix": "north side needs [facing=south], south side needs [facing=north]"},
-    {"layer": "interior", "problem": "empty room with only a crafting table", "fix": "add lantern lighting, stairs as chairs, trapdoor+fence table, bookshelves, carpet"}
-  ],
-  "missing_layers": []
-}
+{"score": 7, "issues": [{"layer": "walls", "problem": "...", "fix": "..."}], "missing_layers": []}
 
-Score 1-10. Be HARSH. Check against every anti-pattern:
-- Are walls FLAT with no depth? (pillars, mixed materials, recessed windows?)
-- Is the roof FLAT or are stairs facing wrong? (correct facing: open side faces INWARD)
-- Is there a foundation or does building sit on bare ground?
-- Are windows full glass blocks instead of glass_pane?
-- Is lighting torches-on-walls instead of lanterns on chains?
-- Is the interior empty or properly furnished?
-- Are surfaces single-material or properly texture-mixed?
-- Is there exterior landscaping (path, garden, lamp posts)?
-- Are doors missing their upper half?
-- Are beds missing their head part?
+Score 1-10. Check EVERY anti-pattern:
+- Flat walls with no depth?
+- Wrong stair facing on roof?
+- No foundation?
+- Full glass blocks instead of glass_pane?
+- Torches instead of lanterns?
+- Empty interior?
+- Single-material surfaces?
+- No landscaping?
+- Missing door upper halves / bed head parts?
 
-If score >= 8 and no critical issues: {"score": 9, "issues": [], "missing_layers": []}`;
+If score >= 8: {"score": 9, "issues": [], "missing_layers": []}`;
 
-const INSPECTOR_TOOL = `You are a Minecraft structural inspector. Fix specific issues in a block list.
-
-RESPOND WITH ONLY JSON: {"fixes":[{"x":0,"y":0,"z":0,"block":"minecraft:torch"}],"removals":[{"x":0,"y":0,"z":0}]}
-
-Check and fix:
-- Every oak_door[half=lower] must have oak_door[half=upper] at y+1
-- Every bed[part=foot] must have bed[part=head] adjacent
-- Add torches/lanterns if no lighting exists inside the build
-- Fill wall gaps (single missing blocks in an otherwise solid wall)
-- Remove any blocks placed inside solid walls (z-fighting)
-
-If no fixes needed: {"fixes":[],"removals":[]}`;
+const INSPECTOR_TOOL = `Minecraft structural inspector. Fix issues.
+RESPOND WITH ONLY JSON: {"fixes":[{"x":0,"y":0,"z":0,"block":"minecraft:lantern"}],"removals":[{"x":0,"y":0,"z":0}]}
+Fix: missing door tops, missing bed heads, no lighting, wall gaps.
+If clean: {"fixes":[],"removals":[]}`;
 
 export class ClaudeBuilder extends EventEmitter {
   constructor() {
     super();
+    this.llm = new LLMBackend();
   }
 
   async generateBuild(prompt, origin) {
     const t0 = Date.now();
 
-    // ===== PHASE 1: ARCHITECT PLANS =====
-    this.emit('chat', `§7Reading build request: §f"${prompt}"`);
-    this.emit('chat', `§7Planning structure, materials, and layout...`);
+    // ===== PHASE 1: MASTER ARCHITECT =====
+    this.emit('chat', `§7Reading: §f"${prompt}"`);
+    this.emit('chat', `§7Designing structure...`);
     this.emit('status', 'Planning...');
 
-    const planText = await this._call(
-      `${ARCHITECT_TOOL}\n\nBuild: "${prompt}"\nOrigin: (${origin.x}, ${origin.y}, ${origin.z})`,
-      'sonnet'
+    const masterText = await this.llm.call(
+      `${MASTER_ARCHITECT}\n\nBuild: "${prompt}"\nOrigin: (${origin.x}, ${origin.y}, ${origin.z})`,
+      'quality'
     );
 
-    let plan;
+    let masterPlan;
     try {
-      plan = JSON.parse(planText.match(/\{[\s\S]*\}/)[0]);
+      masterPlan = JSON.parse(masterText.match(/\{[\s\S]*\}/)[0]);
     } catch {
-      plan = {
-        name: prompt, palette: {}, footprint: { w: 8, d: 8 },
-        layers: [{ y_start: 0, y_end: 6, name: 'build', desc: prompt }]
+      masterPlan = {
+        name: prompt, palette: {}, scale: 'small',
+        sections: [{ name: 'main', offset: { x: 0, z: 0 }, footprint: { w: 10, d: 10 }, height: 8, desc: prompt }]
       };
-      this.emit('chat', `§e⚠ Plan was ambiguous, using simplified approach`);
+      this.emit('chat', `§e⚠ Simplified plan`);
     }
 
-    const layers = plan.layers || [];
-    const matList = Object.values(plan.palette || {}).slice(0, 5).map(m => m.replace('minecraft:', '')).join(', ');
-    this.emit('chat', `§a✓ §fPlan: §b${plan.name || prompt}`);
-    this.emit('chat', `§7  ${plan.footprint?.w || '?'}×${plan.footprint?.d || '?'} footprint, ${layers.length} layers`);
+    const sections = masterPlan.sections || [];
+    const matList = Object.values(masterPlan.palette || {}).slice(0, 5).map(m => m.replace('minecraft:', '')).join(', ');
+    this.emit('chat', `§a✓ §fPlan: §b${masterPlan.name || prompt}`);
+    this.emit('chat', `§7  ${sections.length} section${sections.length > 1 ? 's' : ''}, scale: ${masterPlan.scale || 'normal'}`);
     if (matList) this.emit('chat', `§7  Palette: §f${matList}`);
-    for (const l of layers) {
-      this.emit('chat', `§7  · §e${l.name}§7 (y${l.y_start}-${l.y_end})`);
+    for (const s of sections) {
+      this.emit('chat', `§7  · §e${s.name}§7 (${s.footprint?.w}×${s.footprint?.d}, h=${s.height})`);
     }
 
-    // ===== PHASE 2: MASON GENERATES LAYER BY LAYER (with context carry) =====
+    // ===== PHASE 2: BUILD EACH SECTION =====
     const allBlocks = [];
-    const layerResults = {}; // carry context: previous layers inform next ones
 
-    for (let i = 0; i < layers.length; i++) {
-      const layer = layers[i];
-      this.emit('chat', `§7Building §e${layer.name}§7...`);
-      this.emit('status', `Layer ${i + 1}/${layers.length}: ${layer.name}`);
+    for (let si = 0; si < sections.length; si++) {
+      const section = sections[si];
+      const sectionOrigin = {
+        x: origin.x + (section.offset?.x || 0),
+        y: origin.y,
+        z: origin.z + (section.offset?.z || 0)
+      };
 
-      const t1 = Date.now();
-      const blocks = await this._generateLayerWithContext(layer, plan, origin, layerResults);
+      this.emit('chat', `§7━━━ Section ${si + 1}/${sections.length}: §b${section.name} §7━━━`);
 
-      if (blocks.length > 0) {
-        allBlocks.push(...blocks);
-        layerResults[layer.name] = blocks;
-        this.emit('blocks', blocks);
-        const layerTime = ((Date.now() - t1) / 1000).toFixed(1);
-        this.emit('chat', `§a  ✓ §f${layer.name}§7 — ${blocks.length} blocks (${layerTime}s)`);
-      } else {
-        this.emit('chat', `§c  ✗ §f${layer.name}§7 — failed, will retry`);
-        layerResults[layer.name] = [];
+      // Plan layers for this section
+      this.emit('status', `Planning ${section.name}...`);
+      const layerText = await this.llm.call(
+        `${SECTION_PLANNER}\n\nSection: "${section.name}"\nSize: ${section.footprint?.w}×${section.footprint?.d}, height=${section.height}\nPalette: ${JSON.stringify(masterPlan.palette || {})}\nDescription: ${section.desc}`,
+        'quality'
+      );
+
+      let sectionPlan;
+      try {
+        sectionPlan = JSON.parse(layerText.match(/\{[\s\S]*\}/)[0]);
+      } catch {
+        sectionPlan = { layers: [{ y_start: 0, y_end: section.height || 6, name: section.name, desc: section.desc }] };
+      }
+
+      const layers = sectionPlan.layers || [];
+      for (const l of layers) {
+        this.emit('chat', `§7  · §f${l.name}§7 (y${l.y_start}-${l.y_end})`);
+      }
+
+      // Generate each layer with context carry
+      const sectionBlocks = [];
+      const layerResults = {};
+
+      for (let i = 0; i < layers.length; i++) {
+        const layer = layers[i];
+        this.emit('chat', `§7  Building §e${layer.name}§7...`);
+        this.emit('status', `${section.name}: ${layer.name} (${i + 1}/${layers.length})`);
+
+        const t1 = Date.now();
+        const blocks = await this._generateLayer(layer, masterPlan, sectionOrigin, section, layerResults);
+
+        if (blocks.length > 0) {
+          sectionBlocks.push(...blocks);
+          allBlocks.push(...blocks);
+          layerResults[layer.name] = blocks;
+          this.emit('blocks', blocks);
+          this.emit('chat', `§a    ✓ §f${layer.name}§7 — ${blocks.length} blocks (${((Date.now() - t1) / 1000).toFixed(1)}s)`);
+        } else {
+          this.emit('chat', `§c    ✗ §f${layer.name}§7 — failed`);
+          layerResults[layer.name] = [];
+        }
+      }
+
+      // Critique this section
+      if (sectionBlocks.length > 0 && sections.length <= 3) {
+        this.emit('chat', `§7  Reviewing ${section.name}...`);
+        try {
+          const sample = sectionBlocks.length > 250
+            ? sectionBlocks.filter((_, i) => i % Math.ceil(sectionBlocks.length / 250) === 0)
+            : sectionBlocks;
+
+          const critiqueText = await this.llm.call(
+            `${CRITIC_TOOL}\n\nSection: "${section.name}"\nDescription: ${section.desc}\nBlocks (${sectionBlocks.length} total, sample):\n${JSON.stringify(sample)}\n\nReview.`,
+            'quality'
+          );
+          const critique = JSON.parse(critiqueText.match(/\{[\s\S]*\}/)[0]);
+          this.emit('chat', `§7  Quality: §f${critique.score}/10`);
+
+          if (critique.score < 8 && critique.issues?.length > 0) {
+            for (const issue of critique.issues.slice(0, 3)) {
+              this.emit('chat', `§e    ⚠ ${issue.problem}`);
+            }
+
+            // Retry worst layers
+            const badLayers = [...new Set(critique.issues.map(i => i.layer))].slice(0, 2);
+            for (const layerName of badLayers) {
+              const layer = layers.find(l => l.name === layerName);
+              if (!layer) continue;
+
+              const issues = critique.issues
+                .filter(i => i.layer === layerName)
+                .map(i => `${i.problem} → ${i.fix}`)
+                .join('; ');
+
+              this.emit('chat', `§7    Rebuilding §e${layerName}§7...`);
+              const oldBlocks = layerResults[layerName] || [];
+              for (const ob of oldBlocks) {
+                const idx = allBlocks.findIndex(b => b.x === ob.x && b.y === ob.y && b.z === ob.z);
+                if (idx >= 0) allBlocks.splice(idx, 1);
+              }
+
+              const newBlocks = await this._generateLayerWithFixes(layer, masterPlan, sectionOrigin, section, layerResults, issues);
+              if (newBlocks.length > 0) {
+                allBlocks.push(...newBlocks);
+                layerResults[layerName] = newBlocks;
+                this.emit('blocks', newBlocks);
+                this.emit('chat', `§a    ✓ §f${layerName}§7 rebuilt — ${newBlocks.length} blocks`);
+              }
+            }
+          } else {
+            this.emit('chat', `§a    ✓ §7Section looks good`);
+          }
+        } catch {
+          this.emit('chat', `§7    Critique skipped`);
+        }
       }
     }
 
-    // ===== PHASE 3: SELF-CRITIQUE =====
-    this.emit('chat', `§7Reviewing build quality...`);
-    this.emit('status', 'Self-critique...');
+    // ===== PHASE 3: FINAL STRUCTURAL INSPECTION =====
+    this.emit('chat', `§7Running final inspection...`);
+    this.emit('status', 'Inspecting...');
 
-    let critique = null;
     try {
       const sample = allBlocks.length > 300
         ? allBlocks.filter((_, i) => i % Math.ceil(allBlocks.length / 300) === 0)
         : allBlocks;
 
-      const critiqueText = await this._call(
-        `${CRITIC_TOOL}\n\nOriginal request: "${prompt}"\nPlan:\n${JSON.stringify(plan, null, 1)}\n\nGenerated blocks (${allBlocks.length} total, sample):\n${JSON.stringify(sample)}\n\nReview this build.`,
-        'sonnet'
+      const fixText = await this.llm.call(
+        `${INSPECTOR_TOOL}\n\nBlocks (${allBlocks.length} total):\n${JSON.stringify(sample)}\n\nFix issues.`,
+        'fast'
       );
-      critique = JSON.parse(critiqueText.match(/\{[\s\S]*\}/)[0]);
-
-      this.emit('chat', `§7  Quality score: §f${critique.score}/10`);
-      if (critique.issues?.length > 0) {
-        for (const issue of critique.issues.slice(0, 4)) {
-          this.emit('chat', `§e  ⚠ ${issue.layer}: §7${issue.problem}`);
-        }
-      } else {
-        this.emit('chat', `§a  ✓ §7No issues found`);
-      }
-    } catch (err) {
-      this.emit('chat', `§7  Critique skipped`);
-    }
-
-    // ===== PHASE 4: RETRY BAD LAYERS (if critique found issues) =====
-    if (critique && critique.score < 8 && critique.issues?.length > 0) {
-      const badLayers = [...new Set(critique.issues.map(i => i.layer))];
-      this.emit('chat', `§7Regenerating ${badLayers.length} layers with fixes...`);
-      this.emit('status', 'Fixing issues...');
-
-      for (const layerName of badLayers) {
-        const layer = layers.find(l => l.name === layerName);
-        if (!layer) continue;
-
-        const issues = critique.issues
-          .filter(i => i.layer === layerName)
-          .map(i => `${i.problem} → ${i.fix}`)
-          .join('; ');
-
-        this.emit('chat', `§7  Rebuilding §e${layerName}§7...`);
-        const t2 = Date.now();
-
-        // Remove old blocks from this layer
-        const oldBlocks = layerResults[layerName] || [];
-        for (const ob of oldBlocks) {
-          const idx = allBlocks.findIndex(b => b.x === ob.x && b.y === ob.y && b.z === ob.z);
-          if (idx >= 0) allBlocks.splice(idx, 1);
-        }
-
-        // Regenerate with critique context
-        const newBlocks = await this._generateLayerWithCritique(layer, plan, origin, layerResults, issues);
-
-        if (newBlocks.length > 0) {
-          allBlocks.push(...newBlocks);
-          layerResults[layerName] = newBlocks;
-          this.emit('blocks', newBlocks);
-          const fixTime = ((Date.now() - t2) / 1000).toFixed(1);
-          this.emit('chat', `§a  ✓ §f${layerName}§7 rebuilt — ${newBlocks.length} blocks (${fixTime}s)`);
-        }
-      }
-    }
-
-    // ===== PHASE 5: STRUCTURAL INSPECTOR =====
-    this.emit('chat', `§7Running structural inspection...`);
-    this.emit('status', 'Inspecting...');
-
-    try {
-      const sample = allBlocks.length > 250
-        ? allBlocks.filter((_, i) => i % Math.ceil(allBlocks.length / 250) === 0)
-        : allBlocks;
-
-      const fixText = await this._call(
-        `${INSPECTOR_TOOL}\n\nBlocks (${allBlocks.length} total):\n${JSON.stringify(sample)}\n\nFix structural issues.`,
-        'haiku'
-      );
-
       const fixes = JSON.parse(fixText.match(/\{[\s\S]*\}/)[0]);
       if (fixes.fixes?.length > 0) {
         allBlocks.push(...fixes.fixes);
         this.emit('blocks', fixes.fixes);
-        this.emit('chat', `§a  ✓ §7${fixes.fixes.length} structural fixes applied`);
+        this.emit('chat', `§a  ✓ §7${fixes.fixes.length} fixes applied`);
       } else {
         this.emit('chat', `§a  ✓ §7Structure is solid`);
       }
@@ -280,89 +303,70 @@ export class ClaudeBuilder extends EventEmitter {
       this.emit('chat', `§7  Inspection skipped`);
     }
 
-    // ===== DONE =====
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     this.emit('chat', `§a§l✓ Build complete! §r§f${allBlocks.length} blocks §7in ${elapsed}s`);
-    this.emit('chat', `§7Position with §fArrow keys§7/§fPgUp§7/§fPgDn§7, §fR§7 to rotate, §fEnter§7 to place`);
+    this.emit('chat', `§7Position with §fArrow keys§7/§fPgUp§7/§fPgDn§7, §fR§7 rotate, §fEnter§7 place`);
 
     return { blocks: allBlocks, removals: [] };
   }
 
-  // ---- LAYER WITH CONTEXT (previous layers inform this one) ----
-  async _generateLayerWithContext(layer, plan, origin, prevResults) {
-    // Build context summary of what's been placed so far
-    let contextSummary = '';
+  // ---- EDIT ----
+  async editBlocks(prompt, selectedBlocks) {
+    const blockList = selectedBlocks
+      .map(b => `  (${b.x}, ${b.y}, ${b.z}): ${b.block}`)
+      .join('\n');
+
+    this.emit('chat', `§7Editing ${selectedBlocks.length} blocks: §f"${prompt}"`);
+    this.emit('status', 'Editing...');
+
+    const text = await this.llm.call(
+      `You are a master Minecraft editor.\n${BLOCK_PROPERTIES}\n\nRESPOND WITH ONLY JSON:\n{"blocks":[{"x":0,"y":0,"z":0,"block":"minecraft:vine"},...], "removals":[{"x":0,"y":0,"z":0}]}\n\nOnly NEW/CHANGED blocks. Be creative.\n\nExisting:\n${blockList}\n\nEdit: ${prompt}`,
+      'quality'
+    );
+
+    const result = this._parseBlocks(text);
+    this.emit('chat', `§a✓ §f${result.blocks.length} changes${(result.removals?.length || 0) > 0 ? `, §c${result.removals.length} removals` : ''}`);
+    return result;
+  }
+
+  // ---- LAYER GENERATION ----
+  async _generateLayer(layer, masterPlan, sectionOrigin, section, prevResults) {
+    let context = '';
     const prevNames = Object.keys(prevResults);
     if (prevNames.length > 0) {
-      contextSummary = '\n\nALREADY PLACED (build on top of / adjacent to these):';
+      context = '\n\nALREADY PLACED:';
       for (const name of prevNames) {
         const blocks = prevResults[name];
         if (blocks.length === 0) continue;
         const ys = blocks.map(b => b.y);
         const types = {};
         blocks.forEach(b => { types[b.block] = (types[b.block] || 0) + 1; });
-        const topTypes = Object.entries(types).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t, c]) => `${t.replace('minecraft:', '')}(${c})`).join(', ');
-        contextSummary += `\n  ${name}: ${blocks.length} blocks at y=${Math.min(...ys)}-${Math.max(...ys)} [${topTypes}]`;
+        const top = Object.entries(types).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t, c]) => `${t.replace('minecraft:', '')}(${c})`).join(', ');
+        context += `\n  ${name}: ${blocks.length} blocks y=${Math.min(...ys)}-${Math.max(...ys)} [${top}]`;
       }
     }
 
-    const prompt = `${MASON_TOOL}
-
-ORIGIN: (${origin.x}, ${origin.y}, ${origin.z})
-FOOTPRINT: ${plan.footprint?.w || 8} wide (x-axis), ${plan.footprint?.d || 8} deep (z-axis)
-PALETTE: ${JSON.stringify(plan.palette || {})}
-${contextSummary}
-
-GENERATE THIS LAYER:
-Name: ${layer.name}
-Y range: y_start=${layer.y_start}, y_end=${layer.y_end}
-Absolute Y: ${origin.y + layer.y_start} to ${origin.y + layer.y_end}
-Description: ${layer.desc}
-
-Every coordinate must be absolute. x starts at ${origin.x}, z starts at ${origin.z}, y starts at ${origin.y + layer.y_start}.`;
+    const prompt = `${MASON_TOOL}\n\nORIGIN: (${sectionOrigin.x}, ${sectionOrigin.y}, ${sectionOrigin.z})\nSECTION: ${section.name} (${section.footprint?.w}×${section.footprint?.d})\nPALETTE: ${JSON.stringify(masterPlan.palette || {})}${context}\n\nGENERATE LAYER:\nName: ${layer.name}\nY: ${sectionOrigin.y + layer.y_start} to ${sectionOrigin.y + layer.y_end}\nDesc: ${layer.desc}\n\nAbsolute coords. x from ${sectionOrigin.x}, z from ${sectionOrigin.z}, y from ${sectionOrigin.y + layer.y_start}.`;
 
     try {
-      const text = await this._call(prompt, 'sonnet');
+      const text = await this.llm.call(prompt, 'quality');
       return this._parseBlocks(text).blocks || [];
     } catch (err) {
-      console.error(`[Mason] Layer ${layer.name} failed: ${err.message}`);
+      console.error(`[Mason] ${layer.name} failed: ${err.message}`);
       return [];
     }
   }
 
-  // ---- LAYER WITH CRITIQUE (regenerate with fix instructions) ----
-  async _generateLayerWithCritique(layer, plan, origin, prevResults, issues) {
-    let contextSummary = '';
-    const prevNames = Object.keys(prevResults).filter(n => n !== layer.name);
-    if (prevNames.length > 0) {
-      contextSummary = '\n\nALREADY PLACED:';
-      for (const name of prevNames) {
-        const blocks = prevResults[name];
-        if (blocks.length === 0) continue;
-        contextSummary += `\n  ${name}: ${blocks.length} blocks`;
-      }
+  async _generateLayerWithFixes(layer, masterPlan, sectionOrigin, section, prevResults, issues) {
+    let context = '';
+    for (const [name, blocks] of Object.entries(prevResults)) {
+      if (name !== layer.name && blocks.length > 0) context += `\n  ${name}: ${blocks.length} blocks`;
     }
 
-    const prompt = `${MASON_TOOL}
-
-ORIGIN: (${origin.x}, ${origin.y}, ${origin.z})
-FOOTPRINT: ${plan.footprint?.w || 8} wide (x), ${plan.footprint?.d || 8} deep (z)
-PALETTE: ${JSON.stringify(plan.palette || {})}
-${contextSummary}
-
-GENERATE THIS LAYER (RETRY — fix the issues listed below):
-Name: ${layer.name}
-Y range: ${layer.y_start} to ${layer.y_end}
-Absolute Y: ${origin.y + layer.y_start} to ${origin.y + layer.y_end}
-Description: ${layer.desc}
-
-ISSUES FROM PREVIOUS ATTEMPT (you MUST fix these):
-${issues}
-
-Be thorough. Don't repeat the same mistakes.`;
+    const prompt = `${MASON_TOOL}\n\nORIGIN: (${sectionOrigin.x}, ${sectionOrigin.y}, ${sectionOrigin.z})\nSECTION: ${section.name} (${section.footprint?.w}×${section.footprint?.d})\nPALETTE: ${JSON.stringify(masterPlan.palette || {})}${context ? '\n\nALREADY PLACED:' + context : ''}\n\nRETRY LAYER (fix issues below):\nName: ${layer.name}\nY: ${sectionOrigin.y + layer.y_start} to ${sectionOrigin.y + layer.y_end}\nDesc: ${layer.desc}\n\nISSUES TO FIX:\n${issues}\n\nDon't repeat mistakes.`;
 
     try {
-      const text = await this._call(prompt, 'sonnet');
+      const text = await this.llm.call(prompt, 'quality');
       return this._parseBlocks(text).blocks || [];
     } catch (err) {
       console.error(`[Mason] Retry ${layer.name} failed: ${err.message}`);
@@ -370,67 +374,9 @@ Be thorough. Don't repeat the same mistakes.`;
     }
   }
 
-  // ---- EDIT PIPELINE ----
-  async editBlocks(prompt, selectedBlocks) {
-    const blockList = selectedBlocks
-      .map(b => `  (${b.x}, ${b.y}, ${b.z}): ${b.block}`)
-      .join('\n');
-
-    this.emit('chat', `§7Editing ${selectedBlocks.length} blocks: §f"${prompt}"`);
-    this.emit('chat', `§7Analyzing structure and planning changes...`);
-    this.emit('status', 'Editing...');
-
-    const text = await this._call(
-      `You are a master Minecraft editor. Given existing blocks and an instruction, output ONLY the changes.
-
-RESPOND WITH ONLY JSON:
-{"blocks":[{"x":0,"y":0,"z":0,"block":"minecraft:vine"},...], "removals":[{"x":0,"y":0,"z":0}]}
-
-RULES:
-- Only include NEW or CHANGED blocks
-- "removals" = blocks to delete
-- Be creative and thorough
-- Use varied blocks for visual interest
-- Consider structural implications of changes
-
-Existing blocks:\n${blockList}\n\nEdit instruction: ${prompt}`,
-      'sonnet'
-    );
-
-    const result = this._parseBlocks(text);
-    const remCount = (result.removals || []).length;
-    this.emit('chat', `§a✓ §f${result.blocks.length} changes${remCount > 0 ? `§7, §c${remCount} removals` : ''}`);
-    this.emit('chat', `§7Review the preview, then §fEnter§7 to confirm or §fEsc§7 to cancel`);
-    return result;
-  }
-
-  // ---- CLAUDE CLI CALL ----
-  _call(prompt, model = 'sonnet') {
-    return new Promise((resolve, reject) => {
-      const proc = spawn('claude', ['-p', '-', '--output-format', 'text', '--model', model], {
-        timeout: 600000,
-        env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'cli' }
-      });
-
-      let stdout = '';
-      proc.stdout.on('data', (d) => { stdout += d.toString(); });
-      proc.stderr.on('data', () => {});
-      proc.on('close', (code) => {
-        if (code !== 0 && !stdout.trim()) reject(new Error(`exited ${code}`));
-        else resolve(stdout.trim());
-      });
-      proc.on('error', reject);
-      proc.stdin.write(prompt);
-      proc.stdin.end();
-    });
-  }
-
-  // ---- JSON PARSER ----
   _parseBlocks(text) {
     let clean = text;
-    if (clean.startsWith('```')) {
-      clean = clean.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    }
+    if (clean.startsWith('```')) clean = clean.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
     const match = clean.match(/\{[\s\S]*\}/);
     if (match) clean = match[0];
     const result = JSON.parse(clean);
