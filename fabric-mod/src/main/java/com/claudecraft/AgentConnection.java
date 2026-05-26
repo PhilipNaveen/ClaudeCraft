@@ -137,7 +137,7 @@ public class AgentConnection {
             switch (type) {
                 case "preview_clear" -> {
                     ClaudeCraftMod.ghostRenderer.clear();
-                    ClaudeCraftMod.currentMode = ClaudeCraftMod.Mode.PREVIEWING;
+                    ClaudeCraftMod.currentMode = ClaudeCraftMod.Mode.GENERATING;
                 }
                 case "preview_add" -> {
                     // Streaming: add blocks incrementally as they generate
@@ -153,7 +153,8 @@ public class AgentConnection {
                         ));
                     }
                     ClaudeCraftMod.ghostRenderer.addBlocks(blocks);
-                    ClaudeCraftMod.currentMode = ClaudeCraftMod.Mode.PREVIEWING;
+                    ClaudeCraftMod.currentMode = ClaudeCraftMod.Mode.GENERATING;
+                    ClaudeCraftMod.setStatus("§b+" + blocks.size() + " blocks", 2000);
                 }
                 case "preview" -> {
                     // Final complete preview
@@ -183,11 +184,11 @@ public class AgentConnection {
 
                     ClaudeCraftMod.ghostRenderer.setPreview(blocks, rems);
                     ClaudeCraftMod.currentMode = ClaudeCraftMod.Mode.PREVIEWING;
-                    sendChat("§b[ClaudeCraft] Done! " + blocks.size() + " blocks. R=rotate, Enter=confirm, Esc=cancel");
+                    ClaudeCraftMod.setStatus("§aDone! " + blocks.size() + " blocks — move, rotate, then Enter to place", 5000);
                 }
                 case "status" -> {
                     String statusMsg = msg.get("message").getAsString();
-                    sendChat("§e[ClaudeCraft] " + statusMsg);
+                    ClaudeCraftMod.setStatus("§e" + statusMsg, 10000);
                 }
                 case "placed" -> {
                     int count = msg.get("count").getAsInt();

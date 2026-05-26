@@ -41,6 +41,28 @@ public class GhostRenderer {
         this.previewBlocks.addAll(newBlocks);
     }
 
+    /**
+     * Nudge entire preview by offset. Fortnite-style repositioning.
+     */
+    public void nudge(int dx, int dy, int dz) {
+        if (previewBlocks.isEmpty()) return;
+        var moved = new java.util.concurrent.CopyOnWriteArrayList<PreviewBlock>();
+        for (var b : previewBlocks) {
+            moved.add(new PreviewBlock(b.x + dx, b.y + dy, b.z + dz, b.block));
+        }
+        previewBlocks = moved;
+
+        var movedRem = new java.util.concurrent.CopyOnWriteArrayList<Removal>();
+        for (var r : removals) {
+            movedRem.add(new Removal(r.x + dx, r.y + dy, r.z + dz));
+        }
+        removals = movedRem;
+
+        if (rotationCenter != null) {
+            rotationCenter = rotationCenter.add(dx, dy, dz);
+        }
+    }
+
     public void rotate90() {
         if (rotationCenter == null || previewBlocks.isEmpty()) return;
         rotationSteps = (rotationSteps + 1) % 4;
