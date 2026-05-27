@@ -179,6 +179,14 @@ public class ClaudeCraftMod implements ClientModInitializer {
                 setStatus("§cCancelled", 1500);
             }
         }
+
+        // ---- CANCEL DURING GENERATION ----
+        if (currentMode == Mode.GENERATING && cancelKey.wasPressed()) {
+            agent.sendCancel();
+            ghostRenderer.clear();
+            currentMode = Mode.NONE;
+            setStatus("§cBuild cancelled", 2000);
+        }
     }
 
     // ---- Nudge rate limiting (150ms between nudges for smooth feel) ----

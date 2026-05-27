@@ -85,6 +85,12 @@ async function handleMessage(msg, ws, claude) {
       break;
     }
 
+    case 'cancel': {
+      console.log('[Mod] Build cancelled');
+      claude.cancel();
+      break;
+    }
+
     case 'ping': {
       ws.send(JSON.stringify({ type: 'pong' }));
       break;

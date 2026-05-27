@@ -91,6 +91,12 @@ public class AgentConnection {
         send(msg);
     }
 
+    public void sendCancel() {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "cancel");
+        send(msg);
+    }
+
     public void requestEdit(String prompt, List<SelectionManager.SelectedBlock> blocks) {
         JsonObject msg = new JsonObject();
         msg.addProperty("type", "edit");
