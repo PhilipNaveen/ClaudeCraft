@@ -91,6 +91,12 @@ repeat: Repeat with offset. {"type":"repeat", "command":{...}, "count":4, "dx":5
 
 ALL COORDINATES ABSOLUTE — origin is provided.
 
+SCALE REFERENCE: 1 block = ~1 meter. Use this for PROPORTIONS, not as a size limit.
+- For playable builds (houses, shops, castles): a person is ~2 blocks tall, doors 1x2, ceilings 3-4 high, small house ~8x10.
+- For decorative/statues/art: scale to whatever the user asks. "80-block tall statue" = 80 blocks tall. "giant apple" = big.
+- The point is internal proportions feel right — a statue's arm should be proportional to its body, a car's wheels proportional to its frame.
+- If the user specifies a size, use that. If not, default to realistic human-scale for usable builds, or impressive-but-reasonable for art.
+
 ${COLOR_AND_TEXTURE}
 
 ADAPT TO THE BUILD TYPE:
