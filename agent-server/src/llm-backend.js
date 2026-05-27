@@ -39,7 +39,8 @@ export class LLMBackend {
   // ---- CLAUDE CLI (haiku for speed) ----
   _callClaude(prompt, tier) {
     return new Promise((resolve, reject) => {
-      const proc = spawn('claude', ['-p', '-', '--output-format', 'text', '--model', 'haiku'], {
+      const model = tier === 'quality' ? 'sonnet' : 'haiku';
+      const proc = spawn('claude', ['-p', '-', '--output-format', 'text', '--model', model], {
         timeout: 600000,
         env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'cli' }
       });

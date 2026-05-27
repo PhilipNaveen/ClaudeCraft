@@ -42,7 +42,8 @@ public class ClaudeCraftMod implements ClientModInitializer {
         VOLUME_SECOND,   // Waiting for second corner
         PROMPTING,       // Typing prompt
         GENERATING,      // Waiting for AI
-        PREVIEWING       // Ghost preview visible — Fortnite mode
+        PREVIEWING,      // Ghost preview visible — Fortnite mode
+        PLACING          // Blocks being placed via /setblock
     }
 
     @Override
@@ -167,8 +168,8 @@ public class ClaudeCraftMod implements ClientModInitializer {
                 placer.placeBlocks(ghostRenderer.getPreviewBlocks(), ghostRenderer.getRemovals());
                 ghostRenderer.clear();
                 selection.clear();
-                currentMode = Mode.NONE;
-                setStatus("§aPlacing " + count + " blocks!", 3000);
+                currentMode = Mode.PLACING;
+                setStatus("§bPlacing " + count + " blocks... Esc to cancel", 60000);
             }
 
             // Esc — Cancel
@@ -186,6 +187,13 @@ public class ClaudeCraftMod implements ClientModInitializer {
             ghostRenderer.clear();
             currentMode = Mode.NONE;
             setStatus("§cBuild cancelled", 2000);
+        }
+
+        // ---- CANCEL DURING PLACEMENT ----
+        if (currentMode == Mode.PLACING && cancelKey.wasPressed()) {
+            placer.cancel();
+            setStatus("§cPlacement cancelled", 2000);
+            currentMode = Mode.NONE;
         }
     }
 

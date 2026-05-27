@@ -49,7 +49,12 @@ public class HudOverlay {
             case GENERATING -> {
                 drawBar(context, font, x, y, screenW,
                     "§b⟳ GENERATING...",
-                    "§7AI is building — blocks appear as they're ready");
+                    "§7AI is building — [Esc] Cancel");
+            }
+            case PLACING -> {
+                drawBar(context, font, x, y, screenW,
+                    "§b⟳ PLACING BLOCKS...",
+                    "§7[Esc] Cancel placement");
             }
             case PREVIEWING -> {
                 int blocks = ClaudeCraftMod.ghostRenderer.getPreviewBlocks().size();

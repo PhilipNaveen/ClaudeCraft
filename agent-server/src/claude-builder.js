@@ -55,8 +55,18 @@ FOR REDSTONE/MECHANICAL:
 - place for all redstone components (exact positioning matters)
 - fill for housing/walls around mechanisms
 
-Don't over-size. A detailed 12x12 house beats an empty 30x30 box.
-Detail makes builds real — spend most commands on place blocks for decoration.`;
+CRITICAL QUALITY RULES:
+- NEVER make empty boxes. Every room needs furniture, lighting, and purpose.
+- NEVER leave large flat surfaces bare. Break them up with pillars, trim, variation.
+- NEVER build oversized unless the user specifically asks for massive/huge/large.
+- Default size: compact and detailed. A rich 10x10 house > an empty 25x25 shell.
+- Every wall needs depth: pillars, recessed windows, trapdoor shutters, button details.
+- Every interior needs: light source, furniture (stairs+trapdoor=chair/table), storage, floor different from walls.
+- Every exterior needs: path to door, some landscaping (flowers, fences, lamp posts).
+- Roofs need: overhang, chimney (cobblestone_wall stack), variety (don't just do one flat stair layer).
+- Think like a real builder: would you walk inside this and feel like it's a real place?
+- 50%+ of your commands should be detail/decoration, not just structure.
+- Use "repeat" for evenly spaced details (lanterns, pillars, windows) — don't skip them.`;
 
 const PLANNER_PROMPT = `You are a Minecraft build planner. Decide if a build needs multiple sections or just one.
 
@@ -72,7 +82,11 @@ RULES:
 - SMALL builds (single house, statue, tree, object): use 1 section. Don't over-decompose.
 - LARGE builds (castle, village, fortress): use 2-4 sections with offsets so they don't overlap.
 - Each description must be SPECIFIC about what blocks, features, and details to include.
-- Sections build in PARALLEL so they must be independent.`;
+- Sections build in PARALLEL so they must be independent.
+- DEFAULT TO SMALL AND DETAILED. A 10x12 house with rich detail beats a 30x30 empty shell.
+- Only make things large if the user EXPLICITLY says "big", "massive", "huge", "large", or "size of X".
+- Every section description MUST include interior details (furniture, lighting, decoration) and exterior details (paths, gardens, landscaping).
+- A section description that only says "stone walls and a roof" is INCOMPLETE. Specify the furniture, the window shutters, the flower beds, the chimney.`;
 
 export class ClaudeBuilder extends EventEmitter {
   constructor() {
@@ -104,7 +118,7 @@ export class ClaudeBuilder extends EventEmitter {
 
       const planText = await this.llm.call(
         `${PLANNER_PROMPT}\n\nBuild: "${prompt}"\nOrigin: (${origin.x}, ${origin.y}, ${origin.z})`,
-        'fast'
+        'quality'
       );
 
       if (signal.aborted) throw new Error('cancelled');
@@ -131,7 +145,7 @@ export class ClaudeBuilder extends EventEmitter {
 
         return this.llm.call(
           `${COMMAND_PROMPT}\n\nSECTION: "${section.name}"\nORIGIN: (${so.x}, ${so.y}, ${so.z})\nDESCRIPTION: ${section.desc}\n\nGenerate commands.`,
-          'fast'
+          'quality'
         ).then(text => {
           if (signal.aborted) return;
           try {
@@ -179,7 +193,7 @@ export class ClaudeBuilder extends EventEmitter {
 
     const text = await this.llm.call(
       `Minecraft editor. JSON only: {"blocks":[{"x":0,"y":0,"z":0,"block":"minecraft:vine"},...], "removals":[{"x":0,"y":0,"z":0}]}\nOnly changes.\n\nExisting:\n${blockList}\n\nEdit: ${prompt}`,
-      'fast'
+      'quality'
     );
 
     let clean = text;
