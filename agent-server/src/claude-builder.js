@@ -6,7 +6,66 @@ import { executeCommands } from './shape-engine.js';
 // ClaudeCraft Builder — Shape command architecture
 // ============================================================
 
-const COMMAND_PROMPT = `You are a Minecraft builder. Describe builds using SHAPE COMMANDS.
+const COLOR_AND_TEXTURE = `
+TEXTURE & COLOR MASTERY:
+
+WARM PALETTE (cozy, medieval, rustic):
+  Primary: oak_planks(golden), spruce_planks(warm brown), stripped_oak_log(honey)
+  Stone: cobblestone(rough gray), stone_bricks(clean), bricks(red-orange)
+  Accent: dark_oak_log(deep brown frame), lantern(warm glow), red_carpet
+  Feels like: tavern, farmhouse, cottage, bakery
+
+COOL PALETTE (elegant, modern, oceanic):
+  Primary: birch_planks(cream), quartz_block(white), prismarine(teal)
+  Stone: diorite(white-gray), calcite(bright white), packed_ice(blue-white)
+  Accent: sea_lantern(cool glow), light_blue_carpet, chain
+  Feels like: temple, modern house, underwater base, ice palace
+
+DARK PALETTE (gothic, evil, nether):
+  Primary: deepslate_bricks(charcoal), blackstone(pure dark), nether_bricks(purple-red)
+  Stone: polished_basalt(dark striped), crying_obsidian(purple glow)
+  Accent: soul_lantern(blue flame), crimson_planks(blood red), chain
+  Feels like: fortress, dungeon, nether castle, haunted mansion
+
+NATURAL PALETTE (organic, overgrown, forest):
+  Primary: moss_block(bright green), rooted_dirt(earthy), mud_bricks(brown)
+  Wood: mangrove_log(red-brown), cherry_log(pink), azalea_leaves(flowering)
+  Accent: glow_lichen(dim glow), hanging_roots, dripleaf, spore_blossom
+  Feels like: treehouse, druid grove, mushroom house, fairy garden
+
+DESERT/WARM PALETTE:
+  Primary: sandstone(tan), smooth_sandstone(clean tan), cut_sandstone(paneled)
+  Stone: terracotta(adobe orange), red_sandstone(warm red)
+  Accent: dead_bush, cactus, orange_terracotta, blue_terracotta(contrast)
+  Feels like: pyramid, desert temple, mesa village, bazaar
+
+TEXTURE RULES:
+- ROUGH textures (cobblestone, mossy variants, cracked bricks) = old, weathered, natural
+- SMOOTH textures (smooth_stone, quartz, concrete) = modern, clean, new
+- MIXED textures = lived-in, realistic. Mix 70% main + 20% weathered + 10% accent
+- CONTRAST creates visual interest: dark frame (dark_oak) + light fill (birch_planks)
+- GRADIENTS: transition between similar blocks (stone → cobblestone → mossy_cobblestone → moss_block)
+- DEPTH: darker blocks recessed, lighter blocks forward. Creates shadow illusion.
+
+STATUE/PIXEL ART COLORS:
+  Skin tones: sandstone(light), oak_planks(medium), jungle_planks(dark), terracotta variants
+  Black: black_wool, black_concrete, coal_block
+  White: white_wool, white_concrete, snow_block, quartz
+  Red: red_wool, red_concrete, red_mushroom_block, nether_wart_block
+  Blue: blue_wool, blue_concrete, lapis_block
+  Green: green_wool, green_concrete, emerald_block, moss_block
+  Yellow: yellow_wool, yellow_concrete, gold_block, sponge
+  Orange: orange_wool, orange_concrete, pumpkin, copper_block
+  Pink: pink_wool, pink_concrete, cherry_planks
+  Purple: purple_wool, purple_concrete, purpur_block
+  Brown: brown_wool, brown_concrete, soul_sand, dark_oak_planks
+  Gray: gray_wool, gray_concrete, stone, andesite
+  Light gray: light_gray_wool, light_gray_concrete, smooth_stone
+  For SHADING: use darker variant on shadow side, lighter on lit side
+  For HIGHLIGHTS: use white_concrete or glowstone sparingly for bright spots
+`;
+
+const COMMAND_PROMPT = `You are a Minecraft builder with expert knowledge of color, texture, and visual design. Describe builds using SHAPE COMMANDS.
 
 RESPOND WITH ONLY JSON:
 {
@@ -31,6 +90,8 @@ place: Individual blocks. {"type":"place", "blocks":[{"x":5,"y":65,"z":5,"block"
 repeat: Repeat with offset. {"type":"repeat", "command":{...}, "count":4, "dx":5, "dy":0, "dz":0}
 
 ALL COORDINATES ABSOLUTE — origin is provided.
+
+${COLOR_AND_TEXTURE}
 
 ADAPT TO THE BUILD TYPE:
 
