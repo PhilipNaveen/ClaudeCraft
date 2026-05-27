@@ -48,11 +48,17 @@ export class LLMBackend {
       this._activeProcs.add(proc);
 
       let stdout = '';
+      let stderr = '';
+      const t = Date.now();
+      console.log(`[CLI] Calling ${model}...`);
+
       proc.stdout.on('data', (d) => { stdout += d.toString(); });
-      proc.stderr.on('data', () => {});
+      proc.stderr.on('data', (d) => { stderr += d.toString(); });
       proc.on('close', (code) => {
         this._activeProcs.delete(proc);
-        if (code !== 0 && !stdout.trim()) reject(new Error(`exited ${code}`));
+        console.log(`[CLI] ${model} finished in ${((Date.now() - t) / 1000).toFixed(1)}s (code=${code}, ${stdout.length} chars)`);
+        if (stderr.trim()) console.log(`[CLI] stderr: ${stderr.substring(0, 100)}`);
+        if (code !== 0 && !stdout.trim()) reject(new Error(`exited ${code}: ${stderr.substring(0, 100)}`));
         else resolve(stdout.trim());
       });
       proc.on('error', (err) => {
