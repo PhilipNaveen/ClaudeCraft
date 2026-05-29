@@ -4,25 +4,14 @@ ClaudeCraft is basically Claude Code but for Minecraft. You press B, type what y
 
 ## How it works
 
-![Planning phase](images/1.png)
+![Planning phase](Prompt.png)
 
-The AI plans your build — picking materials, dimensions, and breaking it into layers.
+![Layers generating](Building1.png)
 
-![Layers generating](images/2.png)
+![Ghost preview](Building2.png)
 
-Blocks appear layer by layer as each piece generates. Chat shows progress like a build log.
+![Placed build](Finished)
 
-![Ghost preview](images/3.png)
-
-Full ghost preview. Green = new blocks. Arrow keys to slide it around, R to rotate, PgUp/PgDn to adjust height.
-
-![Placed build](images/4.png)
-
-Hit Enter and it places. Every block goes down via /setblock.
-
-![Edit mode](images/5.png)
-
-Select blocks with V (click) or G (volume), press B, describe changes. Same loop — preview, adjust, confirm.
 
 ## Setup
 
