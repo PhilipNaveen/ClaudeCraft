@@ -1,6 +1,6 @@
 # ClaudeCraft
 
-ClaudeCraft is basically Claude Code but for Minecraft. You press B, type what you want to build, and watch it happen block by block in front of you. It plans the build, generates each layer, critiques its own work, fixes mistakes, and lets you move/rotate the whole thing before placing it. You can also select existing blocks and reprompt to edit them — same iterative loop you'd use prompting code changes, but with blocks instead of files.
+ClaudeCraft is basically Claude Code but for Minecraft. You press B, type what you want to build, and watch it happen block by block in front of you. It plans the build, generates each layer, critiques its own work, fixes mistakes, and lets you move/rotate the whole thing before placing it. You can also select existing blocks and reprompt to edit them, like the same iterative loop you'd use prompting code changes, but with blocks instead of files.
 
 ## How it works
 
