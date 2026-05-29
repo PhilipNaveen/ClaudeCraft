@@ -10,7 +10,7 @@ ClaudeCraft is basically Claude Code but for Minecraft. You press B, type what y
 
 ![Ghost preview](Building2.png)
 
-![Placed build](Finished)
+![Placed build](Finished.png)
 
 
 ## Setup
